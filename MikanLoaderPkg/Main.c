@@ -283,21 +283,6 @@ EFI_STATUS EFIAPI UefiMain(EFI_HANDLE image_handle, EFI_SYSTEM_TABLE *system_tab
     Print(L"failed to free pool: %r\n", status);
     Halt();
   }
-  /***************************/
-  /* EFI_PHYSICAL_ADDRESS kernel_base_addr = 0x100000;
-  status = gBS->AllocatePages(AllocateAddress, EfiLoaderData, (kernel_file_size + 0xfff) / 0x1000, &kernel_base_addr);
-  if (EFI_ERROR(status)) {
-    Print(L"failed to allocate pages: %r", status);
-    Halt();
-  }
-  status = kernel_file->Read(kernel_file, &kernel_file_size, (VOID*)kernel_base_addr);
-  if (EFI_ERROR(setatus)) {
-    Print(L"fail to load kernel to memory %r", status);
-    Halt();
-  }
-  Print(L"Kernel: 0x%01x (%lu bytes)\n", kernel_base_addr, kernel_file_size); */
-
-  /***************/
   
   status = gBS->ExitBootServices(image_handle, memmap.map_key);
   if (EFI_ERROR(status)) {
