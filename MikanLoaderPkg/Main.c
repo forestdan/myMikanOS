@@ -11,15 +11,7 @@
 #include  <Library/BaseMemoryLib.h>
 #include  "frame_buffer_config.hpp"
 #include  "elf.hpp"
-
-struct MemoryMap {
-  UINTN buffer_size;
-  VOID* buffer;
-  UINTN map_size;
-  UINTN map_key;
-  UINTN descriptor_size;
-  UINT32 descriptor_version;
-};
+#include  "memory_map.hpp"
 
 EFI_STATUS GetMemoryMap(struct MemoryMap* map) {
   if (map->buffer == NULL) {
@@ -321,9 +313,9 @@ EFI_STATUS EFIAPI UefiMain(EFI_HANDLE image_handle, EFI_SYSTEM_TABLE *system_tab
   // UINT64 entry_addr = *(UINT64*)(kernel_base_addr + 24);
   UINT64 entry_addr = *(UINT64*)(kernel_first_addr + 24);
 
-  typedef void EntryPointType(const struct FrameBufferConfig*);
+  typedef void EntryPointType(const struct FrameBufferConfig*, const struct MemoryMap*);
   EntryPointType* entry_point = (EntryPointType*)entry_addr;
-  entry_point(&config);
+  entry_point(&config, &memmap);
   /*************************************************************/
   Print(L"All done\n");
     while(1);
