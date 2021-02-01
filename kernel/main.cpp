@@ -19,6 +19,7 @@
 #include "usb/xhci/trb.hpp"
 #include "interrupt.hpp"
 #include "asmfunc.h"
+#include "queue.hpp"
 
 char pixel_writer_buf[sizeof(RGBVResv8BitPerColorPixelWriter)];
 PixelWriter* pixel_writer;
@@ -75,14 +76,28 @@ void SwitchEhci2Xhci(const pci::Device& xhc_dev) {
 
 usb::xhci::Controller* xhc;
 
+// __attribute__((interrupt))
+// void IntHandlerXHCI(InterruptFrame* frame) {
+//     while (xhc->PrimaryEventRing()->HasFront()) {
+//         if (auto err = ProcessEvent(*xhc)) {
+//             Log(kError, "Error while ProcessEvent: %s at %s:%d\n",err.Name(), err.File(), err.Line());
+//         }
+//     }
+//   NotifyEndOfInterrupt();
+// }
+
+struct Message {
+    enum Type {
+        kInterruptXHCI,
+    } type;
+};
+
+ArrayQueue<Message>* main_queue;
+
 __attribute__((interrupt))
 void IntHandlerXHCI(InterruptFrame* frame) {
-    while (xhc->PrimaryEventRing()->HasFront()) {
-        if (auto err = ProcessEvent(*xhc)) {
-            Log(kError, "Error while ProcessEvent: %s at %s:%d\n",err.Name(), err.File(), err.Line());
-        }
-    }
-  NotifyEndOfInterrupt();
+    main_queue->Push(Message{Message::kInterruptXHCI});
+    NotifyEndOfInterrupt();
 }
 
 extern "C" void KernelMain(const FrameBufferConfig& frame_buffer_config) {
@@ -113,13 +128,16 @@ extern "C" void KernelMain(const FrameBufferConfig& frame_buffer_config) {
     console = new(console_buf) Console {*pixel_writer, kDesktopFGColor, kDesktopBGColor};
     printk("Hello myMikanOS\n");
 
+    std::array<Message, 32> main_queue_data;
+    ArrayQueue<Message> main_queue{main_queue_data};
+    ::main_queue = &main_queue;
+
     auto err = pci::ScanAllBus();
     printk("ScanAllBus: %s\n", err.Name());
     for (int i = 0; i < pci::num_device; i++) {
         const auto& dev = pci::devices[i];
         auto vendor_id = pci::ReadVendorId(dev.bus, dev.device, dev.function);
         auto class_code = pci::ReadClassCode(dev.bus, dev.device, dev.function);
-        printk("%d.%d.%d: vend %04x, class %08x, head %02x\n", dev.bus, dev.device, dev.function, vendor_id, class_code, dev.header_type);
     }
 
     pci::Device* xhc_dev = nullptr;
@@ -183,7 +201,32 @@ extern "C" void KernelMain(const FrameBufferConfig& frame_buffer_config) {
         }
     }
 
-    while (1) __asm__("hlt");
+    while (true) {
+        // #@@range_begin(get_front_message)
+        __asm__("cli");
+        if (main_queue.Count() == 0) {
+            __asm__("sti\n\thlt");
+            continue;
+        }
+
+        Message msg = main_queue.Front();
+        main_queue.Pop();
+        __asm__("sti");
+        // #@@range_end(get_front_message)
+
+        switch (msg.type) {
+            case Message::kInterruptXHCI:
+                while (xhc.PrimaryEventRing()->HasFront()) {
+                    if (auto err = ProcessEvent(xhc)) {
+                    Log(kError, "Error while ProcessEvent: %s at %s:%d\n",
+                        err.Name(), err.File(), err.Line());
+                    }
+                }
+            break;
+            default:
+            Log(kError, "Unknown message type: %d\n", msg.type);
+        }
+    }
 }
 
 extern "C" void __cxa_pure_virtual() {
