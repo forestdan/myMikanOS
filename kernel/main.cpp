@@ -23,6 +23,7 @@
 #include "memory_map.hpp"
 #include "segment.hpp"
 #include "paging.hpp"
+#include "memory_manager.hpp"
 
 char pixel_writer_buf[sizeof(RGBVResv8BitPerColorPixelWriter)];
 PixelWriter* pixel_writer;
@@ -46,7 +47,6 @@ int printk(const char* format, ...) {
 }
 
 void MouseObserver(int8_t displacement_x, int8_t displacement_y) {
-    printk("x:%d  y; %d\n", displacement_x, displacement_y);
     mouse_cursor->MoveRelative({displacement_x / 127, displacement_y / 127});
 }
 
@@ -94,6 +94,11 @@ void IntHandlerXHCI(InterruptFrame* frame) {
 }
 
 alignas(16) uint8_t kernel_main_stack[1024 * 1024];
+
+char memory_manager_buf[sizeof(BitmapMemoryManager)];
+BitmapMemoryManager* memory_manager;
+
+
 
 extern "C" void KernelMainNewStack(const FrameBufferConfig& frame_buffer_config_ref, 
                             const MemoryMap& memory_map_ref) {
@@ -158,6 +163,33 @@ extern "C" void KernelMainNewStack(const FrameBufferConfig& frame_buffer_config_
         }
         }
     }
+
+    ::memory_manager = new(memory_manager_buf) BitmapMemoryManager;
+
+  const auto memory_map_base = reinterpret_cast<uintptr_t>(memory_map.buffer);
+  uintptr_t available_end = 0;
+  for (uintptr_t iter = memory_map_base;
+       iter < memory_map_base + memory_map.map_size;
+       iter += memory_map.descriptor_size) {
+    auto desc = reinterpret_cast<const MemoryDescriptor*>(iter);
+    if (available_end < desc->physical_start) {
+      memory_manager->MarkAllocated(
+          FrameID{available_end / kBytesPerFrame},
+          (desc->physical_start - available_end) / kBytesPerFrame);
+    }
+
+    const auto physical_end =
+      desc->physical_start + desc->number_of_pages * kUEFIPageSize;
+    if (IsAvailable(static_cast<MemoryType>(desc->type))) {
+      available_end = physical_end;
+    } else {
+      memory_manager->MarkAllocated(
+          FrameID{desc->physical_start / kBytesPerFrame},
+          desc->number_of_pages * kUEFIPageSize / kBytesPerFrame);
+    }
+  }
+  memory_manager->SetMemoryRange(FrameID{1}, FrameID{available_end / kBytesPerFrame});
+
 
     std::array<Message, 32> main_queue_data;
     ArrayQueue<Message> main_queue{main_queue_data};
