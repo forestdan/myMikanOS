@@ -21,6 +21,8 @@
 #include "asmfunc.h"
 #include "queue.hpp"
 #include "memory_map.hpp"
+#include "segment.hpp"
+#include "paging.hpp"
 
 char pixel_writer_buf[sizeof(RGBVResv8BitPerColorPixelWriter)];
 PixelWriter* pixel_writer;
@@ -45,7 +47,7 @@ int printk(const char* format, ...) {
 
 void MouseObserver(int8_t displacement_x, int8_t displacement_y) {
     printk("x:%d  y; %d\n", displacement_x, displacement_y);
-    mouse_cursor->MoveRelative({displacement_x / 200, displacement_y / 200});
+    mouse_cursor->MoveRelative({displacement_x / 127, displacement_y / 127});
 }
 
 void operator delete(void* obj) noexcept {
@@ -91,7 +93,12 @@ void IntHandlerXHCI(InterruptFrame* frame) {
     NotifyEndOfInterrupt();
 }
 
-extern "C" void KernelMain(const FrameBufferConfig& frame_buffer_config, const MemoryMap& memory_map) {
+alignas(16) uint8_t kernel_main_stack[1024 * 1024];
+
+extern "C" void KernelMainNewStack(const FrameBufferConfig& frame_buffer_config_ref, 
+                            const MemoryMap& memory_map_ref) {
+    FrameBufferConfig frame_buffer_config{frame_buffer_config_ref};
+    MemoryMap memory_map{memory_map_ref};
     /***********************************************************/
     switch(frame_buffer_config.pixel_format) {
         case kPixelRGBResv8BitPerColor:
@@ -118,6 +125,16 @@ extern "C" void KernelMain(const FrameBufferConfig& frame_buffer_config, const M
 
     console = new(console_buf) Console {*pixel_writer, kDesktopFGColor, kDesktopBGColor};
     printk("Welcome to myMikanOS\n");
+    SetLogLevel(kWarn);
+
+    SetupSegments();
+
+    const uint16_t kernel_cs = 1 << 3;
+    const uint16_t kernel_ss = 2 << 3;
+    SetDSAll(0);
+    SetCSSS(kernel_cs, kernel_ss);
+
+    SetupIdentityPageTable();
 
     const std::array available_memory_types{
         MemoryType::kEfiBootServicesCode,
