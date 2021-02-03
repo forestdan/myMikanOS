@@ -147,7 +147,7 @@ namespace {
 
     auto port = xhc.PortAt(port_id);
     InitializeSlotContext(*slot_ctx, port);
-
+    
     InitializeEP0Context(
         *ep0_ctx, dev->AllocTransferRing(ep0_dci, 32),
         DetermineMaxPacketSizeForControlPipe(slot_ctx->bits.speed));
