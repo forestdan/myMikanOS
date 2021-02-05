@@ -15,16 +15,13 @@
 class Terminal {
  public:
   static const int kRows = 15, kColumns = 60;
-  // #@@range_begin(linemax)
   static const int kLineMax = 128;
-  // #@@range_end(linemax)
 
   Terminal();
   unsigned int LayerID() const { return layer_id_; }
   Rectangle<int> BlinkCursor();
   Rectangle<int> InputKey(uint8_t modifier, uint8_t keycode, char ascii);
 
-  // #@@range_begin(term_fields)
  private:
   std::shared_ptr<ToplevelWindow> window_;
   unsigned int layer_id_;
@@ -37,6 +34,14 @@ class Terminal {
   int linebuf_index_{0};
   std::array<char, kLineMax> linebuf_{};
   void Scroll1();
+
+  void ExecuteLine();
+  void Print(const char* s);
+
+  // #@@range_begin(term_fields)
+  std::deque<std::array<char, kLineMax>> cmd_history_{};
+  int cmd_history_index_{-1};
+  Rectangle<int> HistoryUpDown(int direction);
   // #@@range_end(term_fields)
 };
 
