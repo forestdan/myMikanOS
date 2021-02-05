@@ -1,6 +1,7 @@
 #include  <Uefi.h>
 #include  <Library/UefiLib.h>
 #include  <Library/UefiBootServicesTableLib.h>
+#include  <Library/UefiRuntimeServicesTableLib.h>
 #include  <Library/PrintLib.h>
 #include  <Library/MemoryAllocationLib.h>
 #include  <Library/BaseMemoryLib.h>
@@ -270,6 +271,21 @@ EFI_STATUS EFIAPI UefiMain(EFI_HANDLE image_handle, EFI_SYSTEM_TABLE *system_tab
   CopyLoadSegments(kernel_ehdr);
   Print(L"Kernel:0x%0lx - 0x%0lx\n", kernel_first_addr, kernel_last_addr);
 
+  EFI_TIME time;
+  struct UEFIDate date;
+  status = gRT->GetTime(&time, NULL);
+  if (EFI_ERROR(status)) {
+    Print(L"failed to get the time: %r\n", status);
+    Halt();
+  }
+  date.year = time.Year;
+  date.mouth = time.Month;
+  date.day = time.Day;
+  date.hour = time.Hour;
+  date.minute = time.Minute;
+  date.second = time.Second;
+  
+
   status = gBS->FreePool(kernel_buffer);
   if (EFI_ERROR(status)) {
     Print(L"failed to free pool: %r\n", status);
@@ -321,11 +337,14 @@ EFI_STATUS EFIAPI UefiMain(EFI_HANDLE image_handle, EFI_SYSTEM_TABLE *system_tab
     }
   }
 
+  
+  
   typedef void EntryPointType(const struct FrameBufferConfig*,
                               const struct MemoryMap*,
+                              const struct UEFIDate*,
                               const VOID*);
   EntryPointType* entry_point = (EntryPointType*)entry_addr;
-  entry_point(&config, &memmap, acpi_table);
+  entry_point(&config, &memmap, &date, acpi_table);
   /*************************************************************/
   Print(L"All done\n");
     while(1);

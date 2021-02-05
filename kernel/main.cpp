@@ -35,6 +35,7 @@
 #include "keyboard.hpp"
 #include "task.hpp"
 #include "terminal.hpp"
+#include "toke.hpp"
 
 int printk(const char* format, ...) {
   va_list ap;
@@ -119,7 +120,10 @@ alignas(16) uint8_t kernel_main_stack[1024 * 1024];
 extern "C" void KernelMainNewStack(
     const FrameBufferConfig& frame_buffer_config_ref,
     const MemoryMap& memory_map_ref,
+    const UEFIDate& uefi_date,
     const acpi::RSDP& acpi_table) {
+  Toke toke = Toke(uefi_date.hour, uefi_date.minute, uefi_date.second);
+  
   MemoryMap memory_map{memory_map_ref};
 
   InitializeGraphics(frame_buffer_config_ref);
@@ -148,6 +152,7 @@ extern "C" void KernelMainNewStack(
   timer_manager->AddTimer(Timer{kTimer05Sec, kTextboxCursorTimer});
   bool textbox_cursor_visible = false;
 
+  timer_manager->AddTimer(Timer{kTimer05Sec * 2, kTokeTimerValue});
   InitializeTask();
   Task& main_task = task_manager->CurrentTask();
   const uint64_t task_terminal_id = task_manager->NewTask()
@@ -160,6 +165,11 @@ extern "C" void KernelMainNewStack(
   InitializeMouse();
 
   char str[128];
+  char tokeStr[8];
+  int hour, minute, second;
+  hour = -1;
+  minute = -1;
+  second = -1;
 
   while (true) {
     __asm__("cli");
@@ -168,7 +178,7 @@ extern "C" void KernelMainNewStack(
 
     sprintf(str, "%010lu", tick);
     FillRectangle(*main_window->InnerWriter(), {20, 4}, {8 * 10, 16}, {0xc6, 0xc6, 0xc6});
-    WriteString(*main_window->InnerWriter(), {20, 4}, str, {0, 0, 0});
+    WriteString(*main_window->InnerWriter(), {20, 4}, tokeStr, {0, 0, 0});
     layer_manager->Draw(main_window_layer_id);
 
     __asm__("cli");
@@ -198,6 +208,13 @@ extern "C" void KernelMainNewStack(
         __asm__("cli");
         task_manager->SendMessage(task_terminal_id, *msg);
         __asm__("sti");
+      }
+      if (msg->arg.timer.value == kTokeTimerValue) {
+        timer_manager->AddTimer(
+            Timer{msg->arg.timer.timeout + kTimer05Sec * 2, kTokeTimerValue});
+        toke.getTime(&hour, &minute, &second);
+        sprintf(tokeStr, "%02d:%02d:%02d", hour, minute, second);
+        toke.secondPlusOne();
       }
       break;
     case Message::kKeyPush:

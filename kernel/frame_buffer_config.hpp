@@ -11,3 +11,12 @@ struct FrameBufferConfig {
     uint32_t vertical_resolution;
     enum PixelFormat pixel_format;
 };
+
+struct UEFIDate {
+    uint16_t year;
+    uint8_t mouth;
+    uint8_t day;
+    uint8_t hour;
+    uint8_t minute;
+    uint8_t second;
+};
