@@ -150,17 +150,13 @@ void TaskB(uint64_t task_id, int64_t data) {
 }
 
 void DrawToke(Toke toke) {
-  int maxHour = 24;
+  int sumSecond = toke.getSecond();
   int hour = toke.getSecond() / 3600;
   int minute = toke.getSecond() % 3600 / 60;
   int second = toke.getSecond() % 3600 % 60; 
   printk("%02d:%02d:%02d\n", hour, minute, second);
 }
 
-void TaskIdle(uint64_t task_id, int64_t data) {
-  printk("TaskIdle: task_id=%lu, data=%lx\n", task_id, data);
-  while (true) __asm__("hlt");
-}
 
 alignas(16) uint8_t kernel_main_stack[1024 * 1024];
 
@@ -198,9 +194,7 @@ extern "C" void KernelMainNewStack(
   timer_manager->AddTimer(Timer{kTimer05Sec, kTextboxCursorTimer});
   bool textbox_cursor_visible = false;
 
-  // __asm__("cli");
-  // timer_manager->AddTimer(Timer{kTimer05Sec * 2, kTokeTimerValue});
-  // __asm__("sti");
+  timer_manager->AddTimer(Timer{kTimer05Sec * 2, kTokeTimerValue});
 
   InitializeTask();
   Task& main_task = task_manager->CurrentTask();
@@ -208,8 +202,6 @@ extern "C" void KernelMainNewStack(
     .InitContext(TaskB, 45)
     .Wakeup()
     .ID();
-  task_manager->NewTask().InitContext(TaskIdle, 0xdeadbeef).Wakeup();
-  task_manager->NewTask().InitContext(TaskIdle, 0xcafebabe).Wakeup();
   
   usb::xhci::Initialize();
   InitializeKeyboard();
@@ -253,12 +245,12 @@ extern "C" void KernelMainNewStack(
         DrawTextCursor(textbox_cursor_visible);
         layer_manager->Draw(text_window_layer_id);
       }
-      // if (msg.arg.timer.value == kTokeTimerValue) {
-      //   timer_manager->AddTimer(
-      //       Timer{msg.arg.timer.timeout + kTimer05Sec * 2, kTokeTimerValue});
-      //   DrawToke(toke.getSecond());
-      //   toke.secondPlusOne();
-      // }
+      if (msg->arg.timer.value == kTokeTimerValue) {
+        timer_manager->AddTimer(
+            Timer{msg->arg.timer.timeout + kTimer05Sec * 2, kTokeTimerValue});
+        DrawToke(toke);
+        toke.secondPlusOne();
+      }
       break;
     case Message::kKeyPush:
       InputTextWindow(msg->arg.keyboard.ascii);
