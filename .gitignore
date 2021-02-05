@@ -1,0 +1,6 @@
+*.img
+*.efi
+*.o
+.vscode
+*.elf
+*.d
