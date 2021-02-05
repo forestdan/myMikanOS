@@ -8,11 +8,10 @@
 #include <cstddef>
 #include <cstdio>
 
-#include <array>
-#include <numeric>
-#include <vector>
 #include <deque>
 #include <limits>
+#include <numeric>
+#include <vector>
 
 #include "frame_buffer_config.hpp"
 #include "memory_map.hpp"
@@ -35,7 +34,7 @@
 #include "acpi.hpp"
 #include "keyboard.hpp"
 #include "task.hpp"
-#include "toke.hpp"
+#include "terminal.hpp"
 
 int printk(const char* format, ...) {
   va_list ap;
@@ -50,9 +49,7 @@ int printk(const char* format, ...) {
   return result;
 }
 
-
 std::shared_ptr<ToplevelWindow> main_window;
-
 unsigned int main_window_layer_id;
 void InitializeMainWindow() {
   main_window = std::make_shared<ToplevelWindow>(
@@ -67,7 +64,6 @@ void InitializeMainWindow() {
   layer_manager->UpDown(main_window_layer_id, std::numeric_limits<int>::max());
 }
 
-// #@@range_begin(init_textwin)
 std::shared_ptr<ToplevelWindow> text_window;
 unsigned int text_window_layer_id;
 void InitializeTextWindow() {
@@ -81,14 +77,12 @@ void InitializeTextWindow() {
   text_window_layer_id = layer_manager->NewLayer()
     .SetWindow(text_window)
     .SetDraggable(true)
-    .Move({350, 200})
+    .Move({500, 100})
     .ID();
 
   layer_manager->UpDown(text_window_layer_id, std::numeric_limits<int>::max());
 }
-// #@@range_end(init_textwin)
 
-// #@@range_begin(input_textwin)
 int text_window_index;
 
 void DrawTextCursor(bool visible) {
@@ -119,14 +113,12 @@ void InputTextWindow(char c) {
 
   layer_manager->Draw(text_window_layer_id);
 }
-// #@@range_end(input_textwin)
 
 std::shared_ptr<ToplevelWindow> task_b_window;
 unsigned int task_b_window_layer_id;
 void InitializeTaskBWindow() {
   task_b_window = std::make_shared<ToplevelWindow>(
       160, 52, screen_config.pixel_format, "TaskB Window");
-  DrawWindow(*task_b_window->Writer(), "TaskB Window");
 
   task_b_window_layer_id = layer_manager->NewLayer()
     .SetWindow(task_b_window)
@@ -175,21 +167,11 @@ void TaskB(uint64_t task_id, int64_t data) {
   }
 }
 
-void DrawToke(Toke toke) {
-  int sumSecond = toke.getSecond();
-  int hour = toke.getSecond() / 3600;
-  int minute = toke.getSecond() % 3600 / 60;
-  int second = toke.getSecond() % 3600 % 60; 
-  printk("%02d:%02d:%02d\n", hour, minute, second);
-}
-
-
 alignas(16) uint8_t kernel_main_stack[1024 * 1024];
 
-// #@@range_begin(main_function)
 extern "C" void KernelMainNewStack(
     const FrameBufferConfig& frame_buffer_config_ref,
-    const MemoryMap& memory_map_ref, 
+    const MemoryMap& memory_map_ref,
     const acpi::RSDP& acpi_table) {
   MemoryMap memory_map{memory_map_ref};
 
@@ -221,32 +203,35 @@ extern "C" void KernelMainNewStack(
   timer_manager->AddTimer(Timer{kTimer05Sec, kTextboxCursorTimer});
   bool textbox_cursor_visible = false;
 
-  timer_manager->AddTimer(Timer{kTimer05Sec * 2, kTokeTimerValue});
-
   InitializeTask();
   Task& main_task = task_manager->CurrentTask();
   const uint64_t taskb_id = task_manager->NewTask()
     .InitContext(TaskB, 45)
     .Wakeup()
     .ID();
-  
+  // #@@range_begin(start_taskterm)
+  const uint64_t task_terminal_id = task_manager->NewTask()
+    .InitContext(TaskTerminal, 0)
+    .Wakeup()
+    .ID();
+  // #@@range_end(start_taskterm)
+
   usb::xhci::Initialize();
   InitializeKeyboard();
   InitializeMouse();
 
   char str[128];
-  Toke toke = Toke();
+
   while (true) {
     __asm__("cli");
     const auto tick = timer_manager->CurrentTick();
     __asm__("sti");
 
     sprintf(str, "%010lu", tick);
-    FillRectangle(*main_window->Writer(), {24, 28}, {8 * 10, 16}, {0xc6, 0xc6, 0xc6});
-    WriteString(*main_window->Writer(), {24, 28}, str, {0, 0, 0});
+    FillRectangle(*main_window->InnerWriter(), {20, 4}, {8 * 10, 16}, {0xc6, 0xc6, 0xc6});
+    WriteString(*main_window->InnerWriter(), {20, 4}, str, {0, 0, 0});
     layer_manager->Draw(main_window_layer_id);
 
-    // #@@range_begin(sleep_nomsg)
     __asm__("cli");
     auto msg = main_task.ReceiveMessage();
     if (!msg) {
@@ -254,14 +239,14 @@ extern "C" void KernelMainNewStack(
       __asm__("sti");
       continue;
     }
-    // #@@range_end(sleep_nomsg)
 
     __asm__("sti");
-    auto act = active_layer->GetActive();
+
     switch (msg->type) {
     case Message::kInterruptXHCI:
       usb::xhci::ProcessEvents();
       break;
+    // #@@range_begin(send_timermsg)
     case Message::kTimerTimeout:
       if (msg->arg.timer.value == kTextboxCursorTimer) {
         __asm__("cli");
@@ -271,16 +256,15 @@ extern "C" void KernelMainNewStack(
         textbox_cursor_visible = !textbox_cursor_visible;
         DrawTextCursor(textbox_cursor_visible);
         layer_manager->Draw(text_window_layer_id);
-      }
-      if (msg->arg.timer.value == kTokeTimerValue) {
-        timer_manager->AddTimer(
-            Timer{msg->arg.timer.timeout + kTimer05Sec * 2, kTokeTimerValue});
-        DrawToke(toke);
-        toke.secondPlusOne();
+
+        __asm__("cli");
+        task_manager->SendMessage(task_terminal_id, *msg);
+        __asm__("sti");
       }
       break;
+    // #@@range_end(send_timermsg)
     case Message::kKeyPush:
-      if (act == text_window_layer_id) {
+      if (auto act = active_layer->GetActive(); act == text_window_layer_id) {
         InputTextWindow(msg->arg.keyboard.ascii);
       } else if (act == task_b_window_layer_id) {
         if (msg->arg.keyboard.ascii == 's') {
