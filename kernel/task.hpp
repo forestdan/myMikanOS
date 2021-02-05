@@ -9,7 +9,12 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <deque>
+#include <optional>
 #include <vector>
+
+#include "error.hpp"
+#include "message.hpp"
 
 struct TaskContext {
   uint64_t cr3, rip, rflags, reserved1; // offset 0x00
@@ -19,7 +24,6 @@ struct TaskContext {
   std::array<uint8_t, 512> fxsave_area; // offset 0xc0
 } __attribute__((packed));
 
-// #@@range_begin(task)
 using TaskFunc = void (uint64_t, int64_t);
 
 class Task {
@@ -29,28 +33,40 @@ class Task {
   Task(uint64_t id);
   Task& InitContext(TaskFunc* f, int64_t data);
   TaskContext& Context();
+  uint64_t ID() const;
+  Task& Sleep();
+  Task& Wakeup();
+  void SendMessage(const Message& msg);
+  std::optional<Message> ReceiveMessage();
 
+  // #@@range_begin(task_fields)
  private:
   uint64_t id_;
   std::vector<uint64_t> stack_;
   alignas(16) TaskContext context_;
+  std::deque<Message> msgs_;
+  // #@@range_end(task_fields)
 };
-// #@@range_end(task)
 
-// #@@range_begin(taskmgr)
 class TaskManager {
  public:
   TaskManager();
   Task& NewTask();
-  void SwitchTask();
+  void SwitchTask(bool current_sleep = false);
+
+  void Sleep(Task* task);
+  Error Sleep(uint64_t id);
+  void Wakeup(Task* task);
+  Error Wakeup(uint64_t id);
+  Error SendMessage(uint64_t id, const Message& msg);
+  Task& CurrentTask();
 
  private:
   std::vector<std::unique_ptr<Task>> tasks_{};
   uint64_t latest_id_{0};
-  size_t current_task_index_{0};
+  std::deque<Task*> running_{};
 };
 
 extern TaskManager* task_manager;
-// #@@range_end(taskmgr)
 
 void InitializeTask();

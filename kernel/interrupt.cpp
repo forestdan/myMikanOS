@@ -9,6 +9,7 @@
 #include "asmfunc.h"
 #include "segment.hpp"
 #include "timer.hpp"
+#include "task.hpp"
 
 std::array<InterruptDescriptor, 256> idt;
 
@@ -28,28 +29,24 @@ void NotifyEndOfInterrupt() {
   *end_of_interrupt = 0;
 }
 
-// #@@range_begin(int_handler)
 namespace {
-  std::deque<Message>* msg_queue;
-
+  // #@@range_begin(inthandler_xhci)
   __attribute__((interrupt))
   void IntHandlerXHCI(InterruptFrame* frame) {
-    msg_queue->push_back(Message{Message::kInterruptXHCI});
+    task_manager->SendMessage(1, Message{Message::kInterruptXHCI});
     NotifyEndOfInterrupt();
   }
+  // #@@range_end(inthandler_xhci)
 
   __attribute__((interrupt))
   void IntHandlerLAPICTimer(InterruptFrame* frame) {
     LAPICTimerOnInterrupt();
-    NotifyEndOfInterrupt();
   }
 }
-// #@@range_end(int_handler)
 
-// #@@range_begin(register_handler)
-void InitializeInterrupt(std::deque<Message>* msg_queue) {
-  ::msg_queue = msg_queue;
-
+// #@@range_begin(init_int)
+void InitializeInterrupt() {
+// #@@range_end(init_int)
   SetIDTEntry(idt[InterruptVector::kXHCI],
               MakeIDTAttr(DescriptorType::kInterruptGate, 0),
               reinterpret_cast<uint64_t>(IntHandlerXHCI),
@@ -60,4 +57,3 @@ void InitializeInterrupt(std::deque<Message>* msg_queue) {
               kKernelCS);
   LoadIDT(sizeof(idt) - 1, reinterpret_cast<uintptr_t>(&idt[0]));
 }
-// #@@range_end(register_handler)

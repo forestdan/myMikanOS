@@ -12,8 +12,8 @@ namespace {
   volatile uint32_t& divide_config = *reinterpret_cast<uint32_t*>(0xfee003e0);
 }
 
-void InitializeLAPICTimer(std::deque<Message>& msg_queue) {
-  timer_manager = new TimerManager{msg_queue};
+void InitializeLAPICTimer() {
+  timer_manager = new TimerManager;
 
   divide_config = 0b1011; // divide 1:1
   lvt_timer = 0b001 << 16; // masked, one-shot
@@ -46,8 +46,7 @@ Timer::Timer(unsigned long timeout, int value)
     : timeout_{timeout}, value_{value} {
 }
 
-TimerManager::TimerManager(std::deque<Message>& msg_queue)
-    : msg_queue_{msg_queue} {
+TimerManager::TimerManager() {
   timers_.push(Timer{std::numeric_limits<unsigned long>::max(), -1});
 }
 
@@ -55,7 +54,6 @@ void TimerManager::AddTimer(const Timer& timer) {
   timers_.push(timer);
 }
 
-// #@@range_begin(tick)
 bool TimerManager::Tick() {
   ++tick_;
 
@@ -66,6 +64,7 @@ bool TimerManager::Tick() {
       break;
     }
 
+    // #@@range_begin(timer_tick)
     if (t.Value() == kTaskTimerValue) {
       task_timer_timeout = true;
       timers_.pop();
@@ -76,19 +75,18 @@ bool TimerManager::Tick() {
     Message m{Message::kTimerTimeout};
     m.arg.timer.timeout = t.Timeout();
     m.arg.timer.value = t.Value();
-    msg_queue_.push_back(m);
+    task_manager->SendMessage(1, m);
 
     timers_.pop();
+    // #@@range_end(timer_tick)
   }
 
   return task_timer_timeout;
 }
-// #@@range_end(tick)
 
 TimerManager* timer_manager;
 unsigned long lapic_timer_freq;
 
-// #@@range_begin(call_switchtask)
 void LAPICTimerOnInterrupt() {
   const bool task_timer_timeout = timer_manager->Tick();
   NotifyEndOfInterrupt();
@@ -97,4 +95,3 @@ void LAPICTimerOnInterrupt() {
     task_manager->SwitchTask();
   }
 }
-// #@@range_end(call_switchtask)
